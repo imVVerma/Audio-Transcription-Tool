@@ -13,6 +13,8 @@ import assemblyai as aai
 
 # Import our worker function
 from worker import start_transcription
+import cloudinary
+import cloudinary.uploader
 
 load_dotenv()
 
@@ -20,6 +22,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
+
+# Configure Cloudinary
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", "eraydykx"),
+    api_key=os.getenv("CLOUDINARY_API_KEY", "727575688918773"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET", "4kfjyHHKJdYFuZUfbGa7DJhSfmQ"),
+    secure=True
+)
 
 # Setup Redis connection and RQ Queue
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -32,26 +42,28 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="Audio Transcription Tool API")
 
-# Tighten CORS: Allow frontend dev server (both localhost and 127.0.0.1)
+# Tighten CORS: Allow frontend dev server (both localhost and 127.0.0.1) and Netlify
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], 
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173",
+        "https://audiotranscriptiontool.netlify.app"
+    ], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-ALLOWED_AUDIO_TYPES = [
-    "audio/mpeg",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/mp3",
-    "audio/ogg",
-    "audio/flac",
-    "audio/aac",
-    "audio/m4a",
+ALLOWED_AUDIO_TYPES = {
+    "audio/mpeg", "audio/mp3",
+    "audio/m4a", "audio/x-m4a", "audio/mp4",
+    "audio/wav", "audio/x-wav", "audio/wave",
     "video/mp4",
-]
+    "audio/ogg", "application/ogg",
+    "audio/flac", "audio/x-flac",
+    "audio/aac", "audio/x-aac"
+}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
 @app.post("/transcribe")
@@ -73,10 +85,19 @@ async def transcribe_audio(file: UploadFile = File(...)):
     # Generate a unique job ID
     job_id = str(uuid.uuid4())
     
-    # Save file with absolute path
-    file_path = os.path.join(UPLOAD_DIR, f"{job_id}_{file.filename}")
-    with open(file_path, "wb") as buffer:
-        buffer.write(content)
+    # CRITICAL: Reset file pointer after reading!
+    await file.seek(0)
+    
+    # Upload directly to Cloudinary
+    logger.info(f"[{job_id}] Uploading to Cloudinary...")
+    upload_result = cloudinary.uploader.upload(
+        file.file,
+        resource_type="auto"  # Automatically handles both audio and video files
+    )
+    
+    # Cloudinary provides a public HTTPS URL accessible anywhere by AssemblyAI
+    audio_url = upload_result.get("secure_url")
+    logger.info(f"[{job_id}] Cloudinary upload complete: {audio_url}")
         
     # Get base URL from .env and build webhook target
     base_webhook = os.getenv("WEBHOOK_URL", "").rstrip("/")
@@ -87,8 +108,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
     # 4. Initialize job in Redis
     redis_conn.set(f"job:{job_id}:status", "queued")
     
-    # 5. Enqueue the background job
-    task_queue.enqueue(start_transcription, job_id, file_path, webhook_full_url)
+    # 5. Enqueue the background job (passing audio_url instead of local file_path)
+    task_queue.enqueue(start_transcription, job_id, audio_url, webhook_full_url)
 
     logger.info(f"[{job_id}] Job enqueued.")
     

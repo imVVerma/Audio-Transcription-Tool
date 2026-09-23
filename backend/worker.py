@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_conn = redis.from_url(redis_url)
 
-def start_transcription(job_id: str, file_path: str, webhook_url: str):
+def start_transcription(job_id: str, audio_url: str, webhook_url: str):
     """
     Background job to upload the file and submit to AssemblyAI.
     """
@@ -34,9 +34,9 @@ def start_transcription(job_id: str, file_path: str, webhook_url: str):
         
         transcriber = aai.Transcriber(config=config)
         
-        logger.info(f"[{job_id}] Uploading and submitting to AssemblyAI...")
-        # .submit() uploads the file and starts transcription asynchronously
-        transcript_submission = transcriber.submit(file_path)
+        logger.info(f"[{job_id}] Submitting Cloudinary URL to AssemblyAI...")
+        # .submit() takes the Cloudinary URL and starts transcription asynchronously
+        transcript_submission = transcriber.submit(audio_url)
         
         # Store AssemblyAI internal ID and mapping for webhooks (expires in 24 hrs)
         assemblyai_id = transcript_submission.id
@@ -49,10 +49,6 @@ def start_transcription(job_id: str, file_path: str, webhook_url: str):
         logger.error(f"[{job_id}] Error submitting transcription: {e}")
         redis_conn.set(f"job:{job_id}:status", "error")
         redis_conn.set(f"job:{job_id}:result", json.dumps({"error": str(e)}))
-    finally:
-        # Clean up local temporary file
-        if os.path.exists(file_path):
-            os.remove(file_path)
 
 from rq import Queue, SimpleWorker  # <-- Import SimpleWorker
 
