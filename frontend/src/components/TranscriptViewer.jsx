@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { jsPDF } from 'jspdf';
 
 // Distinct, muted speaker colors that read well on dark backgrounds
 const SPEAKER_COLORS = [
@@ -34,8 +35,73 @@ export default function TranscriptViewer({ transcript, onSeek }) {
     return SPEAKER_COLORS[index];
   };
 
+  const downloadTxt = () => {
+    let content = "";
+    if (items.length === 0) {
+      content = transcript.text;
+    } else {
+      content = items.map(u => `Speaker ${u.speaker} [${formatTime(u.start)}]:\n${u.text}`).join('\n\n');
+    }
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'transcript.txt';
+    a.click();
+  };
+
+  const downloadMd = () => {
+    let content = "# Transcript\n\n";
+    if (items.length === 0) {
+      content += transcript.text;
+    } else {
+      content += items.map(u => `**Speaker ${u.speaker}** _[${formatTime(u.start)}]_:\n\n${u.text}`).join('\n\n---\n\n');
+    }
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'transcript.md';
+    a.click();
+  };
+
+  const downloadPdf = () => {
+    const doc = new jsPDF();
+    let y = 10;
+    doc.setFontSize(16);
+    doc.text("Transcript", 10, y);
+    y += 10;
+    doc.setFontSize(12);
+    
+    if (items.length === 0) {
+        const lines = doc.splitTextToSize(transcript.text, 180);
+        doc.text(lines, 10, y);
+    } else {
+        items.forEach(u => {
+            if (y > 270) {
+                doc.addPage();
+                y = 10;
+            }
+            doc.setFont("helvetica", "bold");
+            doc.text(`Speaker ${u.speaker} [${formatTime(u.start)}]:`, 10, y);
+            y += 7;
+            doc.setFont("helvetica", "normal");
+            const lines = doc.splitTextToSize(u.text, 180);
+            doc.text(lines, 10, y);
+            y += (lines.length * 7) + 5;
+        });
+    }
+    doc.save('transcript.pdf');
+  };
+
   return (
     <div className="transcript-viewer">
+      <div className="transcript-actions">
+        <button className="download-btn" onClick={downloadTxt}>TXT</button>
+        <button className="download-btn" onClick={downloadMd}>MD</button>
+        <button className="download-btn" onClick={downloadPdf}>PDF</button>
+      </div>
+      
       {items.map((utterance, index) => {
         const color = getSpeakerColor(utterance.speaker);
         
