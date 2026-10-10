@@ -112,10 +112,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
     logger.info(f"[{job_id}] Cloudinary upload complete: {audio_url}")
         
     # Get base URL from .env and build webhook target
-    base_webhook = os.getenv("WEBHOOK_URL", "").rstrip("/")
-    webhook_full_url = f"{base_webhook}/webhook" if base_webhook else ""
-    if not webhook_full_url:
-        logger.warning("WEBHOOK_URL is not set. AssemblyAI will not be able to callback.")
+    base_webhook = os.getenv("BACKEND_URL", os.getenv("WEBHOOK_URL", "https://audio-transcription-tool-xx6e.onrender.com")).rstrip("/")
+    webhook_full_url = f"{base_webhook}/webhook"
+
 
     # 4. Initialize job in Redis
     redis_conn.set(f"job:{job_id}:status", "queued")
