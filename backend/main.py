@@ -48,7 +48,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173", 
         "http://127.0.0.1:5173",
-        "https://audiotranscriptiontool.netlify.app"
+        "http://10.1.21.126:5173",
+        "https://audiotranscriptiontool.netlify.app",
+        "https://studioscribe.netlify.app"
     ], 
     allow_credentials=True,
     allow_methods=["*"],
@@ -82,8 +84,18 @@ async def transcribe_audio(file: UploadFile = File(...)):
     file_hash = hashlib.sha256(content).hexdigest()
     logger.info(f"File uploaded. Hash: {file_hash}")
 
+    # Check deduplication cache
+    cached_job_id_bytes = redis_conn.get(f"hash:{file_hash}")
+    if cached_job_id_bytes:
+        cached_job_id = cached_job_id_bytes.decode('utf-8')
+        logger.info(f"Cache hit for {file_hash}, reusing job {cached_job_id}")
+        return {"job_id": cached_job_id, "status": "queued"}
+
     # Generate a unique job ID
     job_id = str(uuid.uuid4())
+    
+    # Store the hash so the webhook can cache it later
+    redis_conn.set(f"job:{job_id}:hash", file_hash)
     
     # CRITICAL: Reset file pointer after reading!
     await file.seek(0)
@@ -189,6 +201,13 @@ async def assemblyai_webhook(request: Request):
             transcript = aai.Transcript.get_by_id(transcript_id)
             redis_conn.set(f"job:{job_id}:result", json.dumps(transcript.json_response))
             redis_conn.set(f"job:{job_id}:status", "completed")
+            
+            # Save to deduplication cache for 30 days
+            file_hash_bytes = redis_conn.get(f"job:{job_id}:hash")
+            if file_hash_bytes:
+                file_hash = file_hash_bytes.decode('utf-8')
+                redis_conn.setex(f"hash:{file_hash}", 2592000, job_id)
+                
             logger.info(f"[{job_id}] Marked as completed via webhook.")
         except Exception as e:
             logger.error(f"[{job_id}] Error fetching completed transcript: {e}")

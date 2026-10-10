@@ -6,6 +6,8 @@ import WaveformPlayer from './components/WaveformPlayer';
 import StatusTracker from './components/StatusTracker';
 import TranscriptViewer from './components/TranscriptViewer';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+
 function App() {
   const [file, setFile] = useState(null);
   const [fileUrl, setFileUrl] = useState(null);
@@ -23,7 +25,7 @@ function App() {
     if (jobId && status !== 'completed' && status !== 'error') {
       intervalId = setInterval(async () => {
         try {
-          const res = await fetch(`http://127.0.0.1:8000/transcribe/${jobId}`);
+          const res = await fetch(`${API_BASE_URL}/transcribe/${jobId}`);
           if (!res.ok) {
             throw new Error(`Error fetching status: ${res.statusText}`);
           }
@@ -65,7 +67,7 @@ function App() {
     formData.append('file', selectedFile);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/transcribe', {
+      const response = await fetch(`${API_BASE_URL}/transcribe`, {
         method: 'POST',
         body: formData,
       });
