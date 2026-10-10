@@ -13,6 +13,7 @@ function App() {
   const [fileUrl, setFileUrl] = useState(null);
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [transcript, setTranscript] = useState(null);
   const [error, setError] = useState(null);
   
@@ -57,7 +58,7 @@ function App() {
     const url = URL.createObjectURL(selectedFile);
     setFileUrl(url);
     
-    // Reset state
+    setUploadProgress(0);
     setError(null);
     setTranscript(null);
     setJobId(null);
@@ -66,26 +67,38 @@ function App() {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/transcribe`, {
-        method: 'POST',
-        body: formData,
-      });
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}/transcribe`, true);
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Submission failed');
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percentComplete);
       }
+    };
 
-      const data = await response.json();
-      setJobId(data.job_id);
-      setStatus(data.status); 
-      // useEffect takes over polling
-      
-    } catch (err) {
-      setError(err.message);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const data = JSON.parse(xhr.responseText);
+        setJobId(data.job_id);
+        setStatus(data.status);
+      } else {
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          setError(errData.detail || 'Submission failed');
+        } catch {
+          setError(`Submission failed with status ${xhr.status}`);
+        }
+        setStatus('error');
+      }
+    };
+
+    xhr.onerror = () => {
+      setError('Network error occurred during upload');
       setStatus('error');
-    }
+    };
+
+    xhr.send(formData);
   };
   
   const handleSeek = (timeInSeconds) => {
@@ -124,7 +137,7 @@ function App() {
               
               {status !== 'completed' && status !== 'error' && (
                 <div className="tracker-wrapper">
-                  <StatusTracker status={status} accentColor="#00D8FF" />
+                  <StatusTracker status={status} uploadProgress={uploadProgress} accentColor="#00D8FF" />
                 </div>
               )}
               
